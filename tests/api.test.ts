@@ -14,7 +14,12 @@ async function serve() {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { base, close: () => new Promise<void>((r) => server.close(() => r())) };
 }
-const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const post = (url: string, body: unknown) =>
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
 test('POST /transfers without amount_cents is a 400 and the server keeps serving', async () => {
   const s = await serve();
@@ -35,7 +40,10 @@ test('GET /transfers/:id for an unknown id is a 404', async () => {
 
 test('an error inside a handler is a 500 and the server keeps serving', async () => {
   const s = await serve();
-  const r = await post(`${s.base}/webhooks/provider`, { provider_ref: 'PROV-0001', status: 'settled' }); // no provider_event_id
+  const r = await post(`${s.base}/webhooks/provider`, {
+    provider_ref: 'PROV-0001',
+    status: 'settled',
+  }); // no provider_event_id
   assert.equal(r.status, 500);
   assert.match((await r.json()).error, /provider_event_id/);
   assert.equal((await fetch(`${s.base}/health`)).status, 200);
