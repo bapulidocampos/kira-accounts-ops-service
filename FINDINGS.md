@@ -200,3 +200,37 @@ The provider now recognizes the retry as a duplicate and returns the original `p
 The provider's idempotency key is now always forwarded on submission. Any retry of the same transfer will be deduplicated by the provider, regardless of how many times the worker retries.
 
 ---
+
+## TICKET-206 — Reconciliation doesn't net to zero (STRETCH)
+
+### How to reproduce
+
+```typescript
+await createOutboundTransfer(db, { account_id: 'A', rail: 'ach', amount_cents: 155500 });
+await processOutbox(db);
+const result = await reconcile(db);
+// result.diffCents !== 0 and result.feeMismatches.length > 0
+```
+
+### Exact mechanism
+
+`feeCents()` in `src/money.ts` used `Math.floor(amountCents * rate)`. The provider uses `Math.floor(amount * rate + 0.5)` (round half-up). For amounts where `amount * 0.029` ends in exactly `.5`, the two formulas produce different results:
+
+- Our fee: `Math.floor(155500 * 0.029)` = `Math.floor(4509.5)` = **4509**
+- Provider fee: `Math.floor(155500 * 0.029 + 0.5)` = `Math.floor(4510.0)` = **4510**
+
+This 1-cent difference causes `diffCents !== 0` and appears as a `feeMismatch` in reconciliation.
+
+### Fix
+
+Changed `feeCents` to use round half-up:
+
+```typescript
+return Math.floor(amountCents * rate + 0.5);
+```
+
+### Why it can't recur
+
+Both Kira and the provider now use the same rounding algorithm. Fee calculations will always match, so reconciliation will net to zero for any transfer amount.
+
+---
