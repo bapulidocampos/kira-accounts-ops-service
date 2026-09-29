@@ -76,6 +76,6 @@ Added an `else if (status === 'reversed')` branch in `applyProviderResult` (`src
 
 ### Why it can't recur
 
-Any unrecognized provider status will now fall through to the log line without side effects — but `reversed` is now explicitly handled. Adding a default `else` branch that logs a warning for unknown statuses would catch future unmapped values.
+`reversed` is now explicitly handled. Any other unrecognized provider status throws an error: the webhook handler returns a 500, the provider retries the webhook, and the error surfaces immediately in logs for the team to add the missing case — preventing silent fund lockups.
 
 ---
