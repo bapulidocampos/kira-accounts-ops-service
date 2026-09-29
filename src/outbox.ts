@@ -9,6 +9,15 @@ const MAX_ATTEMPTS = 3;
 // Worker: drain pending outbox events, submit each transfer to the provider, then deliver
 // the provider's webhooks. Transient provider errors are retried on the next pass.
 export async function processOutbox(db: PGlite, cid = 'WORKER') {
+  const transfers = (await db.query<any>(`select * from transfers where status='created' and direction='outbound'`)).rows;
+  for (const t of transfers) {
+    const exists = (await db.query<any>(`select id from outbox where transfer_id=$1`, [t.id])).rows.length > 0;
+    if (!exists) {
+      await db.query(`insert into outbox(event_type, transfer_id) values ('transfer.submit', $1)`, [t.id]);
+      log('outbox.recovered', { transfer_id: t.id }, cid, 'warn');
+    }
+  }
+
   const events = (await db.query<any>(`select * from outbox where status='pending' order by id`)).rows;
   for (const ev of events) {
     const t = await getTransfer(db, ev.transfer_id);
