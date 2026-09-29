@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { availableCents } from '../src/ledger.js';
 import { creditInbound, createOutboundTransfer } from '../src/transfers.js';
+import { processOutbox } from '../src/outbox.js';
 import * as provider from '../src/providers.js';
 
 async function fresh() {
@@ -33,4 +34,29 @@ test('[201] concurrent requests with same idempotency key create only one transf
   // el saldo debe estar descontado solo una vez ($100 + $2.90 fee = $102.90)
   // saldo esperado: $1000 - $102.90 = $897.10 = 89710 centavos
   assert.equal(await availableCents(db, 'A'), 89710);
+});
+
+// TICKET-202: un pago con status 'reversed' debe liberar el hold y
+// llegar a un estado terminal — sin el fix queda en 'submitted' para siempre
+test('[202] a reversed payout releases the hold and reaches a terminal status', async () => {
+  const db = await fresh();
+
+  const t = await createOutboundTransfer(db, {
+    account_id: 'A',
+    rail: 'crypto',
+    amount_cents: 60000,
+    idempotency_key: 'idem-202',
+    scenario: 'reversed',
+  });
+
+  // el worker envía al proveedor y entrega el webhook reversed
+  await processOutbox(db);
+
+  const row = (await db.query<any>(`select status from transfers where id=$1`, [t.id])).rows[0];
+
+  // debe llegar a un estado terminal (returned), no quedarse en submitted
+  assert.equal(row.status, 'returned');
+
+  // el hold debe haberse liberado — saldo vuelve a 100000
+  assert.equal(await availableCents(db, 'A'), 100000);
 });
