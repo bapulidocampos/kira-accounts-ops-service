@@ -135,3 +135,25 @@ test('[205] a provider timeout on first attempt does not result in a double paym
   const providerCount = provider.submissions.filter((s) => s.idem_key === 'idem-205').length;
   assert.equal(providerCount, 1);
 });
+
+// TICKET-206: la reconciliación debe dar cero cuando no hay incidentes abiertos
+// sin el fix, Math.floor produce fees distintos a los del proveedor (round half-up)
+test('[206] reconciliation nets to zero with matching fee rounding', async () => {
+  const db = await fresh();
+
+  // monto que expone la diferencia de redondeo: 155500 * 0.029 = 4509.5
+  // Math.floor = 4509, Math.floor(x+0.5) = 4510
+  await createOutboundTransfer(db, {
+    account_id: 'A',
+    rail: 'ach',
+    amount_cents: 155500,
+    idempotency_key: 'idem-206',
+  });
+  await processOutbox(db);
+
+  const { reconcile } = await import('../src/reconciliation.js');
+  const result = await reconcile(db);
+
+  assert.equal(result.diffCents, 0);
+  assert.equal(result.feeMismatches.length, 0);
+});
