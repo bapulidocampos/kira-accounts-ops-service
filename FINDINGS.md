@@ -164,3 +164,39 @@ Because the sweep runs before the outbox query, recovered transfers are processe
 Every time the worker runs it checks for orphaned transfers. Any crash at any point in the request lifecycle that leaves a transfer in `created` without an outbox entry will be detected and recovered on the next worker run. The fix is retroactive — it also recovers transfers already stuck before the deploy.
 
 ---
+
+## TICKET-205 — Provider paid twice after a timeout (STRETCH)
+
+### How to reproduce
+
+```typescript
+const t = await createOutboundTransfer(db, { account_id: 'A', rail: 'ach', amount_cents: 120000, idempotency_key: 'idem-205', scenario: 'timeout_once' });
+await processOutbox(db); // first attempt: provider accepts but times out
+await processOutbox(db); // retry: provider accepts again — double payment
+```
+
+### Exact mechanism
+
+The worker called `provider.submit(t)` without passing the `idempotency_key`. The provider has deduplication logic (lines 44-46 of `providers.ts`) but only activates it when a client supplies an `idem_key`. Without it:
+
+1. First attempt: provider accepts the payment, then times out — `ProviderTimeout` is thrown
+2. Worker retries on the next run
+3. Provider receives a new call with no `idem_key` → cannot identify it as a duplicate → accepts and processes a second payment
+
+Result: two payments to the vendor, one transfer in Kira.
+
+### Fix
+
+Pass `t.idempotency_key` to `provider.submit` in `src/outbox.ts`:
+
+```typescript
+const res = provider.submit(t, t.idempotency_key ?? undefined);
+```
+
+The provider now recognizes the retry as a duplicate and returns the original `provider_ref` without processing a new payment.
+
+### Why it can't recur
+
+The provider's idempotency key is now always forwarded on submission. Any retry of the same transfer will be deduplicated by the provider, regardless of how many times the worker retries.
+
+---

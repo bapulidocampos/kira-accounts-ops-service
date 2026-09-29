@@ -112,3 +112,26 @@ test('[204] worker recovers a transfer stuck in created after a crash', async ()
   const after = (await db.query<any>(`select status from transfers where idempotency_key='idem-204'`)).rows[0];
   assert.notEqual(after.status, 'created');
 });
+
+// TICKET-205: un timeout en el primer intento no debe resultar en doble pago
+// el provider debe recibir el idempotency_key para deduplicar en el retry
+test('[205] a provider timeout on first attempt does not result in a double payment', async () => {
+  const db = await fresh();
+
+  await createOutboundTransfer(db, {
+    account_id: 'A',
+    rail: 'ach',
+    amount_cents: 120000,
+    idempotency_key: 'idem-205',
+    scenario: 'timeout_once',
+  });
+
+  // primera corrida: timeout — el proveedor acepta pero no responde
+  await processOutbox(db);
+  // segunda corrida: retry — el proveedor debe deduplicar y no cobrar de nuevo
+  await processOutbox(db);
+
+  // el proveedor solo debe tener UNA aceptación
+  const providerCount = provider.submissions.filter((s) => s.idem_key === 'idem-205').length;
+  assert.equal(providerCount, 1);
+});

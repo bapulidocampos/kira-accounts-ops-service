@@ -22,7 +22,7 @@ export async function processOutbox(db: PGlite, cid = 'WORKER') {
   for (const ev of events) {
     const t = await getTransfer(db, ev.transfer_id);
     try {
-      const res = provider.submit(t);
+      const res = provider.submit(t, t.idempotency_key ?? undefined);
       await setStatus(db, t.id, 'submitted', res.provider_ref);
       await db.query(`update outbox set status='processed', processed_at=now(), attempts=attempts+1 where id=$1`, [
         ev.id,
