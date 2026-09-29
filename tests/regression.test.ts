@@ -60,3 +60,28 @@ test('[202] a reversed payout releases the hold and reaches a terminal status', 
   // el hold debe haberse liberado — saldo vuelve a 100000
   assert.equal(await availableCents(db, 'A'), 100000);
 });
+
+// TICKET-203: webhooks fuera de orden [settled, failed] no deben inflar el saldo
+// ni sobreescribir un estado terminal
+test('[203] out-of-order webhooks do not overwrite a terminal status or inflate the balance', async () => {
+  const db = await fresh();
+
+  const t = await createOutboundTransfer(db, {
+    account_id: 'A',
+    rail: 'ach',
+    amount_cents: 75000,
+    idempotency_key: 'idem-203',
+    scenario: 'out_of_order',
+  });
+
+  // el worker envía al proveedor y entrega los webhooks [settled, failed]
+  await processOutbox(db);
+
+  const row = (await db.query<any>(`select status from transfers where id=$1`, [t.id])).rows[0];
+
+  // debe quedar settled, no failed
+  assert.equal(row.status, 'settled');
+
+  // saldo: 100000 - 75000 - fee(75000=2175) = 22825
+  assert.equal(await availableCents(db, 'A'), 22825);
+});
