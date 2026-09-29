@@ -150,6 +150,15 @@ export async function applyProviderResult(db: PGlite, transfer: any, status: str
       memo: 'release hold (returned)',
     });
     await setStatus(db, transfer.id, 'returned');
+  } else if (status === 'reversed') {
+    await post(db, {
+      transfer_id: transfer.id,
+      account_id: transfer.account_id,
+      entry_type: 'release',
+      amount_cents: total,
+      memo: 'release hold (returned)',
+    });
+    await setStatus(db, transfer.id, 'returned');
   }
   log('transfer.provider_result', { transfer_id: transfer.id, from: transfer.status, provider_status: status }, cid);
 }
