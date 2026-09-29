@@ -118,3 +118,49 @@ If the transfer is already in a terminal state, any subsequent webhook is ignore
 Once a transfer reaches a terminal state it is immutable — no further webhooks can modify its ledger entries or status. The guard covers all terminal states (`settled`, `failed`, `returned`), so any out-of-order delivery from the provider is silently discarded with a trace in the logs.
 
 ---
+
+## TICKET-204 — Payout stuck in "created" after an API crash
+
+### How to reproduce
+
+```typescript
+faults.crashMidRequestFor = 'idem-204';
+await createOutboundTransfer(db, { account_id: 'A', rail: 'ach', amount_cents: 40000, idempotency_key: 'idem-204' });
+// throws — transfer exists with hold, but no outbox entry
+faults.crashMidRequestFor = undefined;
+await processOutbox(db); // without the fix, transfer stays in 'created'
+```
+
+### Exact mechanism
+
+`createOutboundTransfer` executes in this order:
+
+1. `INSERT` transfer → committed
+2. `INSERT` hold in ledger → committed
+3. **CRASH** → process throws here
+4. `INSERT` outbox → **never reached**
+
+The transfer and hold exist in the DB, but the worker only processes outbox events. With no outbox entry, the transfer is never submitted to the provider. Funds remain locked in `created` indefinitely.
+
+### Fix
+
+Added a recovery sweep at the start of `processOutbox` (`src/outbox.ts`). Before draining the outbox queue, the worker queries for any outbound transfers in `created` status that have no outbox entry and re-enqueues them:
+
+```typescript
+const transfers = (await db.query(`select * from transfers where status='created' and direction='outbound'`)).rows;
+for (const t of transfers) {
+  const exists = (await db.query(`select id from outbox where transfer_id=$1`, [t.id])).rows.length > 0;
+  if (!exists) {
+    await db.query(`insert into outbox(event_type, transfer_id) values ('transfer.submit', $1)`, [t.id]);
+    log('outbox.recovered', { transfer_id: t.id }, cid, 'warn');
+  }
+}
+```
+
+Because the sweep runs before the outbox query, recovered transfers are processed in the same worker run — no second pass needed.
+
+### Why it can't recur
+
+Every time the worker runs it checks for orphaned transfers. Any crash at any point in the request lifecycle that leaves a transfer in `created` without an outbox entry will be detected and recovered on the next worker run. The fix is retroactive — it also recovers transfers already stuck before the deploy.
+
+---
