@@ -113,6 +113,12 @@ export async function setStatus(db: PGlite, id: string, status: string, provider
 
 // Apply a provider outcome to a transfer.
 export async function applyProviderResult(db: PGlite, transfer: any, status: string, cid = '-') {
+  const TERMINAL = ['settled', 'failed', 'returned'];
+  if (TERMINAL.includes(transfer.status)) {
+  log('transfer.provider_result.ignored', { transfer_id: transfer.id, current_status: transfer.status, provider_status: status }, cid, 'warn');
+  return;
+}
+
   const total = Number(transfer.amount_cents) + Number(transfer.fee_cents);
   if (status === 'pending') {
     await setStatus(db, transfer.id, 'pending');
