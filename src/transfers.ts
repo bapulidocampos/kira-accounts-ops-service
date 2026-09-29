@@ -150,6 +150,8 @@ export async function applyProviderResult(db: PGlite, transfer: any, status: str
       memo: 'release hold (returned)',
     });
     await setStatus(db, transfer.id, 'returned');
+  } else {
+    throw new Error(`Unhandled provider status: ${status} for transfer ${transfer.id}`);
   }
   log('transfer.provider_result', { transfer_id: transfer.id, from: transfer.status, provider_status: status }, cid);
 }
