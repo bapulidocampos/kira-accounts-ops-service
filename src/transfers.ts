@@ -49,11 +49,19 @@ export async function createOutboundTransfer(
 
   const id = newId('TX-');
   const fee = feeCents(opts.amount_cents);
-  await db.query(
+  const result = await db.query<{ id: string }>(
     `insert into transfers(id, account_id, direction, rail, amount_cents, fee_cents, status, idempotency_key, scenario)
-     values ($1,$2,'outbound',$3,$4,$5,'created',$6,$7)`,
+     values ($1,$2,'outbound',$3,$4,$5,'created',$6,$7)
+     on conflict (idempotency_key) where idempotency_key is not null
+     do nothing
+     returning id`,
     [id, opts.account_id, opts.rail, opts.amount_cents, fee, opts.idempotency_key ?? null, opts.scenario ?? null]
   );
+  if (result.rows.length === 0) {
+    const race = await getByIdemKey(db, opts.idempotency_key);
+    log('transfer.idempotent_hit', { idempotency_key: opts.idempotency_key, transfer_id: race.id }, cid);
+    return race;
+  }
   await post(db, {
     transfer_id: id,
     account_id: opts.account_id,
