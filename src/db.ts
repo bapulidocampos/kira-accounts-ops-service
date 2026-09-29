@@ -44,6 +44,9 @@ create table if not exists processed_events (
   provider_event_id text primary key,
   processed_at timestamptz not null default now()
 );
+create unique index if not exists transfers_idempotency_key_uidx
+  on transfers(idempotency_key)
+  where idempotency_key is not null;
 `;
 
 export async function openDb(dataDir?: string): Promise<PGlite> {
