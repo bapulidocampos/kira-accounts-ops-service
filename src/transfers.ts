@@ -141,7 +141,7 @@ export async function applyProviderResult(db: PGlite, transfer: any, status: str
       memo: 'release hold (failed)',
     });
     await setStatus(db, transfer.id, 'failed');
-  } else if (status === 'returned') {
+  } else if (status === 'returned' || status === 'reversed') {
     await post(db, {
       transfer_id: transfer.id,
       account_id: transfer.account_id,
@@ -150,6 +150,8 @@ export async function applyProviderResult(db: PGlite, transfer: any, status: str
       memo: 'release hold (returned)',
     });
     await setStatus(db, transfer.id, 'returned');
+  } else {
+    throw new Error(`Unhandled provider status: ${status} for transfer ${transfer.id}`);
   }
   log('transfer.provider_result', { transfer_id: transfer.id, from: transfer.status, provider_status: status }, cid);
 }

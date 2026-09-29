@@ -53,3 +53,29 @@ Two changes:
 The unique index enforces deduplication at the database level. Even if two requests pass the initial `getByIdemKey` check simultaneously, only one INSERT will succeed. The second will be silently blocked by `ON CONFLICT DO NOTHING` and will receive the same transfer as the winner. No application-level locking required.
 
 ---
+
+## TICKET-202 — Reversed payout stuck, funds held
+
+### How to reproduce
+
+```typescript
+const t = await createOutboundTransfer(db, { account_id: 'A', rail: 'crypto', amount_cents: 60000, scenario: 'reversed' });
+await processOutbox(db);
+// transfer.status is still 'submitted' — hold never released
+```
+
+### Exact mechanism
+
+The provider sent a webhook with `status: 'reversed'`. `applyProviderResult` in `transfers.ts` had cases for `pending`, `settled`, `failed`, and `returned` — but not `reversed`. No branch matched, so the function logged the event and returned without releasing the hold or updating the transfer status. The transfer stayed in `submitted` indefinitely with funds locked.
+
+### Fix
+
+Added an `else if (status === 'reversed')` branch in `applyProviderResult` (`src/transfers.ts`) that mirrors the `returned` case: release the hold and set the internal status to `returned`.
+
+`reversed` is a provider-side term; there is no `reversed` state in our schema. Mapping it to `returned` is correct — both mean the payment did not complete and funds must be freed.
+
+### Why it can't recur
+
+`reversed` is now explicitly handled. Any other unrecognized provider status throws an error: the webhook handler returns a 500, the provider retries the webhook, and the error surfaces immediately in logs for the team to add the missing case — preventing silent fund lockups.
+
+---
