@@ -37,6 +37,7 @@ npm run dev      # API on :3000 — /health, /accounts/:id/balance, POST /transf
                  #   (PORT=3100 npm run dev if :3000 is busy)
 npm test         # baseline suite (currently GREEN — it does NOT cover the bugs)
 npm run typecheck
+npx prettier --write "src/**/*.ts" "tests/**/*.ts"   # format code (app.ts excluded via .prettierignore)
 ```
 
 ## The incidents (full text in `tickets/`)
