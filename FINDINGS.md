@@ -79,3 +79,42 @@ Added an `else if (status === 'reversed')` branch in `applyProviderResult` (`src
 `reversed` is now explicitly handled. Any other unrecognized provider status throws an error: the webhook handler returns a 500, the provider retries the webhook, and the error surfaces immediately in logs for the team to add the missing case — preventing silent fund lockups.
 
 ---
+
+## TICKET-203 — Payout shows "failed" but the provider paid it; balance overstated
+
+### How to reproduce
+
+```typescript
+const t = await createOutboundTransfer(db, { account_id: 'A', rail: 'ach', amount_cents: 75000, scenario: 'out_of_order' });
+await processOutbox(db);
+// transfer.status is 'failed', but balance is higher than expected
+```
+
+### Exact mechanism
+
+The `out_of_order` scenario delivers webhooks in the sequence `[settled, failed]`:
+
+1. Webhook `settled` → debit + release hold + status `settled` ✓
+2. Webhook `failed` arrives after → release hold **again** (the hold no longer exists) + status `failed`
+
+The second release inflates the balance because it adds back funds that were already debited. The transfer ends up in `failed` even though the payment completed successfully.
+
+### Fix
+
+Added a terminal state guard at the top of `applyProviderResult` (`src/transfers.ts`):
+
+```typescript
+const TERMINAL = ['settled', 'failed', 'returned'];
+if (TERMINAL.includes(transfer.status)) {
+  log('transfer.provider_result.ignored', { transfer_id: transfer.id, current_status: transfer.status, provider_status: status }, cid, 'warn');
+  return;
+}
+```
+
+If the transfer is already in a terminal state, any subsequent webhook is ignored and a warning is logged.
+
+### Why it can't recur
+
+Once a transfer reaches a terminal state it is immutable — no further webhooks can modify its ledger entries or status. The guard covers all terminal states (`settled`, `failed`, `returned`), so any out-of-order delivery from the provider is silently discarded with a trace in the logs.
+
+---
