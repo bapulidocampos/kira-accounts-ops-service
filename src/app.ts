@@ -5,6 +5,7 @@ import { createOutboundTransfer, getTransfer } from './transfers.js';
 import { handleWebhook } from './webhooks.js';
 import { processOutbox } from './outbox.js';
 import { reconcile } from './reconciliation.js';
+import { opsMonitor } from './ops-monitor.js';
 import * as provider from './providers.js';
 import { log } from './logger.js';
 
@@ -15,6 +16,7 @@ const wrap = (fn: Handler): express.RequestHandler => (req, res, next) => { fn(r
 export function createApp(db: PGlite) {
   const app = express();
   app.use(express.json());
+  app.use((_req, res, next) => { res.setHeader('Access-Control-Allow-Origin', '*'); next(); });
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -50,6 +52,8 @@ export function createApp(db: PGlite) {
   app.get('/provider/submissions', (_req, res) => res.json(provider.submissions));
 
   app.get('/reconciliation', wrap(async (_req, res) => res.json(await reconcile(db))));
+
+  app.get('/ops/monitor', wrap(async (_req, res) => res.json(await opsMonitor(db))));
 
   app.use((err: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     log('api.error', { error: err.message }, '-', 'error');
