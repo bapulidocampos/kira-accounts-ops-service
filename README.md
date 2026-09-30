@@ -35,7 +35,9 @@ npm run dev      # API on :3000 — /health, /accounts/:id/balance, POST /transf
                  #   GET /transfers/:id, POST /webhooks/provider, POST /worker/run,
                  #   GET /outbox, GET /provider/submissions, GET /reconciliation
                  #   (PORT=3100 npm run dev if :3000 is busy)
-npm test         # baseline suite (currently GREEN — it does NOT cover the bugs)
+npm run dev:buggy # API on :3000 seeded with buggy states — shows all ops monitor alerts in red
+                 #   open doc/dashboard.html in a browser to see the ops triage monitor
+npm test         # regression suite — 13 tests, all GREEN after fixes
 npm run typecheck
 npx prettier --write "src/**/*.ts" "tests/**/*.ts"   # format code (app.ts excluded via .prettierignore)
 ```
